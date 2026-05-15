@@ -279,7 +279,7 @@ export function RequirementsTable({ requirements, customerId }: RequirementsTabl
       )}
 
       <div className="rounded-lg border bg-white overflow-x-auto">
-        <Table>
+        <Table className="table-fixed w-full">
           <TableHeader>
             <TableRow>
               <TableHead className="w-10 px-3">
@@ -313,44 +313,48 @@ export function RequirementsTable({ requirements, customerId }: RequirementsTabl
                 const m = meta(req);
                 const isExpanded = expanded === req.id;
                 const isSelected = selected.has(req.id);
+                const species = m.species_opportunity ?? req.subcategory ?? "—";
+                const seasonType = m.season_type ?? "—";
+                const dates = m.dates ?? req.description ?? "—";
+                const fees = m.fees ?? "—";
                 return (
                   <Fragment key={req.id}>
                     <TableRow
                       className={`cursor-pointer transition-colors duration-100 ${isSelected ? "bg-blue-50 hover:bg-blue-50" : "hover:bg-gray-50"}`}
                       onClick={() => setExpanded(isExpanded ? null : req.id)}
                     >
-                      <TableCell className="px-3" onClick={(e) => e.stopPropagation()}>
+                      <TableCell className="px-3 align-top" onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={isSelected}
                           onCheckedChange={() => toggleRow(req.id)}
                           aria-label={`Select ${req.title}`}
                         />
                       </TableCell>
-                      <TableCell className="text-gray-400">
+                      <TableCell className="text-gray-400 align-top">
                         {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="align-top">
                         <Badge variant="outline">{req.category}</Badge>
                       </TableCell>
-                      <TableCell className="font-medium text-sm">
-                        {m.species_opportunity ?? req.subcategory ?? "—"}
+                      <TableCell className="font-medium text-sm align-top whitespace-normal">
+                        <CellText value={species} />
                       </TableCell>
-                      <TableCell className="text-sm text-gray-600">
-                        {m.season_type ?? "—"}
+                      <TableCell className="text-sm text-gray-600 align-top whitespace-normal">
+                        <CellText value={seasonType} />
                       </TableCell>
-                      <TableCell className="text-sm text-gray-600">
-                        <p className="line-clamp-2">{m.dates ?? req.description ?? "—"}</p>
+                      <TableCell className="text-sm text-gray-600 align-top whitespace-normal">
+                        <CellText value={dates} />
                       </TableCell>
-                      <TableCell className="text-sm text-gray-600">
-                        <p className="line-clamp-2">{m.fees ?? "—"}</p>
+                      <TableCell className="text-sm text-gray-600 align-top whitespace-normal">
+                        <CellText value={fees} />
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="text-center align-top">
                         {confidenceBadge(req.confidence)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="align-top">
                         <Badge variant={statusVariant(req.status)}>{req.status}</Badge>
                       </TableCell>
-                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <TableCell className="text-right align-top" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
                           <Button
                             size="sm"
@@ -375,7 +379,7 @@ export function RequirementsTable({ requirements, customerId }: RequirementsTabl
 
                     {isExpanded && (
                       <TableRow className={isSelected ? "bg-blue-50" : "bg-slate-50"}>
-                        <TableCell colSpan={10} className="px-10 py-4">
+                        <TableCell colSpan={10} className="px-10 py-4 whitespace-normal">
                           <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
                             <DetailField label="Eligibility" value={m.eligibility} />
                             <DetailField label="Residency / Age Rule" value={m.residency_age_rule} />
@@ -431,12 +435,29 @@ export function RequirementsTable({ requirements, customerId }: RequirementsTabl
   );
 }
 
+function CellText({ value }: { value: string }) {
+  const hasContent = value && value !== "—";
+  return (
+    <div className="group/cell relative">
+      <p className="line-clamp-2 break-words">{value}</p>
+      {hasContent && (
+        <div
+          role="tooltip"
+          className="pointer-events-none invisible absolute left-0 top-full z-50 mt-1 max-w-sm rounded-md bg-gray-900 px-2.5 py-1.5 text-xs text-white opacity-0 shadow-lg transition-opacity duration-100 delay-150 group-hover/cell:visible group-hover/cell:opacity-100 whitespace-normal break-words"
+        >
+          {value}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DetailField({ label, value }: { label: string; value?: string }) {
   if (!value || value === "None" || value === "Not applicable" || value === "N/A") return null;
   return (
     <div>
       <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</dt>
-      <dd className="mt-0.5 text-gray-800">{value}</dd>
+      <dd className="mt-0.5 text-gray-800 break-words whitespace-normal">{value}</dd>
     </div>
   );
 }
