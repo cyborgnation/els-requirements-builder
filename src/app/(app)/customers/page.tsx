@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { customers } from "@/lib/db/schema";
+import { customers, documents, requirements } from "@/lib/db/schema";
 import { sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -18,18 +18,32 @@ import { US_STATES } from "@/types";
 import { Plus } from "lucide-react";
 
 export default async function CustomersPage() {
-  const allCustomers = await db
-    .select({
-      customer: customers,
-      docCount: sql<number>`(SELECT COUNT(*) FROM documents WHERE documents.customer_id = ${customers.id})`.as(
-        "doc_count"
-      ),
-      reqCount: sql<number>`(SELECT COUNT(*) FROM requirements WHERE requirements.customer_id = ${customers.id})`.as(
-        "req_count"
-      ),
-    })
-    .from(customers)
-    .orderBy(customers.createdAt);
+  const [customerRows, docCounts, reqCounts] = await Promise.all([
+    db.select().from(customers).orderBy(customers.createdAt),
+    db
+      .select({
+        customerId: documents.customerId,
+        count: sql<number>`COUNT(*)::int`.as("count"),
+      })
+      .from(documents)
+      .groupBy(documents.customerId),
+    db
+      .select({
+        customerId: requirements.customerId,
+        count: sql<number>`COUNT(*)::int`.as("count"),
+      })
+      .from(requirements)
+      .groupBy(requirements.customerId),
+  ]);
+
+  const docCountMap = new Map(docCounts.map((r) => [r.customerId, r.count]));
+  const reqCountMap = new Map(reqCounts.map((r) => [r.customerId, r.count]));
+
+  const allCustomers = customerRows.map((customer) => ({
+    customer,
+    docCount: docCountMap.get(customer.id) ?? 0,
+    reqCount: reqCountMap.get(customer.id) ?? 0,
+  }));
 
   return (
     <div>
