@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -24,6 +25,9 @@ export async function DELETE(
       // file may already be gone — not fatal
     }
   }
+
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${doc.customerId}`);
 
   return NextResponse.json({ ok: true });
 }

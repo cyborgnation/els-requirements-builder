@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { customers } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -27,6 +28,8 @@ export async function POST(request: NextRequest) {
     .values({ name, state, agencyName, contactName, contactEmail, notes })
     .returning();
 
+  revalidatePath("/customers");
+
   return NextResponse.json(customer, { status: 201 });
 }
 
@@ -43,6 +46,9 @@ export async function PUT(request: NextRequest) {
     .set({ ...updates, updatedAt: new Date() })
     .where(eq(customers.id, id))
     .returning();
+
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${id}`);
 
   return NextResponse.json(customer);
 }

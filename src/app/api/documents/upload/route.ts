@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { documents } from "@/lib/db/schema";
 import { writeFile, mkdir } from "fs/promises";
@@ -50,6 +51,9 @@ export async function POST(request: NextRequest) {
       errorMessage: rawText ? null : "Failed to extract text from file",
     })
     .returning();
+
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
 
   return NextResponse.json(doc, { status: 201 });
 }

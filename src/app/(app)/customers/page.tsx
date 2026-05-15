@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { customers, documents, requirements } from "@/lib/db/schema";
-import { eq, count, sql } from "drizzle-orm";
+import { customers } from "@/lib/db/schema";
+import { sql } from "drizzle-orm";
+
+export const dynamic = "force-dynamic";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requirements } from "@/lib/db/schema";
 import { eq, inArray } from "drizzle-orm";
@@ -40,6 +41,7 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     if (Array.isArray(body.ids) && body.ids.length > 0) {
       await db.delete(requirements).where(inArray(requirements.id, body.ids));
+      revalidatePath("/customers");
       return NextResponse.json({ ok: true, count: body.ids.length });
     }
   }
@@ -50,5 +52,6 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
   await db.delete(requirements).where(eq(requirements.id, id));
+  revalidatePath("/customers");
   return NextResponse.json({ ok: true });
 }

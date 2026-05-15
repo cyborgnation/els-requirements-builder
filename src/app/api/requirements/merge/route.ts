@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requirements } from "@/lib/db/schema";
 import { eq, inArray } from "drizzle-orm";
@@ -79,6 +80,10 @@ export async function POST(request: NextRequest) {
     .where(eq(requirements.id, keepId));
 
   await db.delete(requirements).where(inArray(requirements.id, mergeIds));
+
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${keep.customerId}`);
+  revalidatePath(`/requirements/${keep.customerId}`);
 
   return NextResponse.json({ ok: true, mergedCount: toMerge.length });
 }

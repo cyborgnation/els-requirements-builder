@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 
 export const maxDuration = 300;
 import { db } from "@/lib/db";
@@ -147,6 +148,10 @@ export async function POST(request: NextRequest) {
         },
       })
       .where(eq(jobs.id, job.id));
+
+    revalidatePath("/customers");
+    revalidatePath(`/customers/${customerId}`);
+    revalidatePath(`/requirements/${customerId}`);
 
     return NextResponse.json({
       job,
