@@ -15,19 +15,12 @@ export async function POST(request: NextRequest) {
   const customerId = formData.get("customerId") as string;
 
   if (!file || !customerId) {
-    return NextResponse.json(
-      { error: "File and customerId are required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "File and customerId are required" }, { status: 400 });
   }
 
   const ext = path.extname(file.name).toLowerCase();
-  const allowedTypes = [".pdf", ".txt", ".text"];
-  if (!allowedTypes.includes(ext)) {
-    return NextResponse.json(
-      { error: "Only PDF and text files are supported" },
-      { status: 400 }
-    );
+  if (![".pdf", ".txt", ".text"].includes(ext)) {
+    return NextResponse.json({ error: "Only PDF and text files are supported" }, { status: 400 });
   }
 
   const fileType = ext === ".pdf" ? "pdf" : "txt";
@@ -40,13 +33,9 @@ export async function POST(request: NextRequest) {
 
   let rawText: string | null = null;
   try {
-    if (fileType === "pdf") {
-      rawText = await parsePdf(buffer);
-    } else {
-      rawText = parseText(buffer);
-    }
+    rawText = fileType === "pdf" ? await parsePdf(buffer) : parseText(buffer);
   } catch {
-    // text extraction failed — document still saved, will need manual handling
+    // text extraction failed — document still saved
   }
 
   const [doc] = await db

@@ -1,13 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import {
-  GoogleGenerativeAI,
-  type FunctionDeclaration,
-} from "@google/generative-ai";
-import {
-  EXTRACTION_SYSTEM_PROMPT,
-  EXTRACTION_TOOL_SCHEMA,
-  getGeminiFunctionDeclaration,
-} from "./prompts";
+import { EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TOOL_SCHEMA } from "./prompts";
 import type { ExtractedRequirement } from "@/types";
 
 export interface AIProviderInterface {
@@ -24,9 +16,15 @@ class ClaudeProvider implements AIProviderInterface {
   }
 
   async extractRequirements(text: string): Promise<ExtractedRequirement[]> {
-    const response = await this.client.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
+    // Streaming is required: non-streaming requests get dropped at the ~3-minute
+    // network idle timeout when the model takes long enough to generate up to
+    // max_tokens, even though token usage is still billed.
+    const t0 = Date.now();
+    let firstEventAt: number | null = null;
+    let eventCount = 0;
+    const stream = this.client.messages.stream({
+      model: "claude-sonnet-4-6",
+      max_tokens: 16000,
       system: EXTRACTION_SYSTEM_PROMPT,
       tools: [
         {
@@ -35,94 +33,79 @@ class ClaudeProvider implements AIProviderInterface {
           input_schema: EXTRACTION_TOOL_SCHEMA.input_schema,
         },
       ],
-      tool_choice: { type: "tool", name: "record_requirements" },
+      tool_choice: { type: "tool", name: "record_matrix_rows" },
       messages: [
         {
           role: "user",
-          content: `Extract all business and functional requirements from the following text. Be thorough — identify every distinct rule, fee, date, eligibility criterion, and system requirement.\n\n---\n\n${text}`,
+          content: `Extract all species/opportunity matrix rows from the following regulatory text. Create one row per species + season type combination, capturing dates, fees, eligibility, licensing, lottery, and restrictions for each.\n\n---\n\n${text}`,
         },
       ],
     });
+
+    let inputJsonChars = 0;
+    let lastEventAt = t0;
+    stream.on("streamEvent", (ev) => {
+      eventCount++;
+      lastEventAt = Date.now();
+      if (firstEventAt === null) {
+        firstEventAt = lastEventAt;
+        console.log(`[claude] first event after ${firstEventAt - t0}ms (text=${text.length} chars)`);
+      }
+    });
+    stream.on("inputJson", (partial) => {
+      inputJsonChars += partial.length;
+    });
+    stream.on("error", (err) => {
+      console.error(`[claude] stream error after ${Date.now() - t0}ms, events=${eventCount}:`, err);
+    });
+
+    const heartbeat = setInterval(() => {
+      const sinceLast = Date.now() - lastEventAt;
+      console.log(`[claude] heartbeat t=${Date.now() - t0}ms events=${eventCount} inputJsonChars=${inputJsonChars} sinceLastEvent=${sinceLast}ms`);
+    }, 5000);
+
+    let response;
+    try {
+      response = await stream.finalMessage();
+    } finally {
+      clearInterval(heartbeat);
+    }
+    console.log(`[claude] finalMessage in ${Date.now() - t0}ms, events=${eventCount}, inputJsonChars=${inputJsonChars}, stop=${response.stop_reason}, usage=${JSON.stringify(response.usage)}`);
 
     for (const block of response.content) {
-      if (block.type === "tool_use" && block.name === "record_requirements") {
+      if (block.type === "tool_use" && block.name === "record_matrix_rows") {
         const input = block.input as {
-          requirements: Array<{
+          rows?: Array<{
             category: string;
-            subcategory?: string;
-            title: string;
-            description: string;
-            raw_source_text: string;
+            species_opportunity: string;
+            season_type: string;
+            dates: string;
+            eligibility: string;
+            residency_age_rule: string;
+            required_licenses: string;
+            fees: string;
+            lottery_window: string;
+            key_restrictions: string;
+            source_urls: string;
+            notes: string;
             confidence: number;
-            metadata?: Record<string, unknown>;
           }>;
         };
-        return input.requirements.map((r) => ({
+        if (!Array.isArray(input.rows)) return [];
+        return input.rows.map((r) => ({
           category: r.category as ExtractedRequirement["category"],
-          subcategory: r.subcategory,
-          title: r.title,
-          description: r.description,
-          rawSourceText: r.raw_source_text,
+          species_opportunity: r.species_opportunity,
+          season_type: r.season_type,
+          dates: r.dates,
+          eligibility: r.eligibility,
+          residency_age_rule: r.residency_age_rule,
+          required_licenses: r.required_licenses,
+          fees: r.fees,
+          lottery_window: r.lottery_window,
+          key_restrictions: r.key_restrictions,
+          source_urls: r.source_urls,
+          notes: r.notes,
           confidence: r.confidence,
-          metadata: r.metadata,
-        }));
-      }
-    }
-
-    return [];
-  }
-}
-
-class GeminiProvider implements AIProviderInterface {
-  name = "gemini";
-  private client: GoogleGenerativeAI;
-
-  constructor() {
-    this.client = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
-  }
-
-  async extractRequirements(text: string): Promise<ExtractedRequirement[]> {
-    const model = this.client.getGenerativeModel({
-      model: "gemini-2.0-flash",
-      tools: [
-        {
-          functionDeclarations: [
-            getGeminiFunctionDeclaration() as FunctionDeclaration,
-          ],
-        },
-      ],
-      systemInstruction: EXTRACTION_SYSTEM_PROMPT,
-    });
-
-    const result = await model.generateContent(
-      `Extract all business and functional requirements from the following text. Be thorough — identify every distinct rule, fee, date, eligibility criterion, and system requirement.\n\n---\n\n${text}`
-    );
-
-    const response = result.response;
-    const calls = response.functionCalls();
-
-    if (calls && calls.length > 0) {
-      const call = calls[0];
-      if (call.name === "record_requirements") {
-        const args = call.args as {
-          requirements: Array<{
-            category: string;
-            subcategory?: string;
-            title: string;
-            description: string;
-            raw_source_text: string;
-            confidence: number;
-            metadata?: Record<string, unknown>;
-          }>;
-        };
-        return args.requirements.map((r) => ({
-          category: r.category as ExtractedRequirement["category"],
-          subcategory: r.subcategory,
-          title: r.title,
-          description: r.description,
-          rawSourceText: r.raw_source_text,
-          confidence: r.confidence,
-          metadata: r.metadata,
         }));
       }
     }
@@ -135,15 +118,10 @@ const providers: Record<string, AIProviderInterface> = {};
 
 export function getProvider(name: string): AIProviderInterface {
   if (!providers[name]) {
-    switch (name) {
-      case "claude":
-        providers[name] = new ClaudeProvider();
-        break;
-      case "gemini":
-        providers[name] = new GeminiProvider();
-        break;
-      default:
-        throw new Error(`Unknown AI provider: ${name}`);
+    if (name === "claude") {
+      providers[name] = new ClaudeProvider();
+    } else {
+      throw new Error(`Unknown AI provider: ${name}`);
     }
   }
   return providers[name];

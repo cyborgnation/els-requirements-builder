@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev --hostname 0.0.0.0",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "worker": "tsx watch src/lib/jobs/workers/index.ts",
+    "worker": "tsx watch --env-file=.env.local src/lib/jobs/workers/index.ts",
     "dev:all": "concurrently \"npm run dev\" \"npm run worker\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

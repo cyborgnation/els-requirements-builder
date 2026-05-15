@@ -30,6 +30,22 @@ export function DocumentList({ documents, customerId }: DocumentListProps) {
   const router = useRouter();
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
   const [extracting, setExtracting] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  async function handleDelete(docId: string, filename: string) {
+    if (!confirm(`Delete "${filename}"? This cannot be undone.`)) return;
+    setDeleting(docId);
+    try {
+      const res = await fetch(`/api/documents/${docId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete document");
+      toast.success("Document deleted");
+      router.refresh();
+    } catch {
+      toast.error("Failed to delete document");
+    } finally {
+      setDeleting(null);
+    }
+  }
 
   async function handleExtract(docId: string) {
     setExtracting(docId);
@@ -39,11 +55,14 @@ export function DocumentList({ documents, customerId }: DocumentListProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documentId: docId, customerId }),
       });
-      if (!res.ok) throw new Error("Failed to start extraction");
-      toast.success("Extraction started");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to start extraction");
+      }
+      toast.success("Extraction complete");
       router.refresh();
-    } catch {
-      toast.error("Failed to start extraction");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start extraction");
     } finally {
       setExtracting(null);
     }
@@ -109,18 +128,24 @@ export function DocumentList({ documents, customerId }: DocumentListProps) {
                         Preview
                       </Button>
                     )}
-                    {(doc.status === "pending" ||
-                      doc.status === "extracted") && (
+                    {(doc.status === "error" || doc.status === "pending") && (
                       <Button
                         size="sm"
+                        variant="outline"
                         disabled={extracting === doc.id}
                         onClick={() => handleExtract(doc.id)}
                       >
-                        {extracting === doc.id
-                          ? "Extracting..."
-                          : "Extract Requirements"}
+                        {extracting === doc.id ? "Extracting…" : "Re-extract"}
                       </Button>
                     )}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={deleting === doc.id}
+                      onClick={() => handleDelete(doc.id, doc.filename)}
+                    >
+                      {deleting === doc.id ? "Deleting..." : "Delete"}
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>

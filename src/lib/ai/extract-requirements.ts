@@ -1,8 +1,43 @@
 import { getProvider } from "./provider";
+import {
+  dedupableFromExtracted,
+  findDuplicate,
+} from "@/lib/requirements/dedupe";
 import type { ExtractedRequirement } from "@/types";
 
-const CHUNK_SIZE = 8000;
-const CHUNK_OVERLAP = 500;
+export function buildRequirementInserts(
+  extracted: ExtractedRequirement[],
+  customerId: string,
+  documentId: string
+) {
+  return extracted.map((r) => ({
+    customerId,
+    documentId,
+    category: r.category,
+    subcategory: r.species_opportunity,
+    title: `${r.species_opportunity} — ${r.season_type}`,
+    description: r.dates,
+    rawSourceText: r.source_urls,
+    confidence: r.confidence,
+    status: (r.confidence < 0.6 ? "needs_review" : "pending") as string,
+    metadata: {
+      species_opportunity: r.species_opportunity,
+      season_type: r.season_type,
+      dates: r.dates,
+      eligibility: r.eligibility,
+      residency_age_rule: r.residency_age_rule,
+      required_licenses: r.required_licenses,
+      fees: r.fees,
+      lottery_window: r.lottery_window,
+      key_restrictions: r.key_restrictions,
+      source_urls: r.source_urls,
+      notes: r.notes,
+    },
+  }));
+}
+
+const CHUNK_SIZE = 60000;
+const CHUNK_OVERLAP = 1000;
 
 export async function extractRequirementsFromText(
   text: string,
@@ -11,14 +46,23 @@ export async function extractRequirementsFromText(
   const provider = getProvider(providerName);
   const chunks = chunkText(text, CHUNK_SIZE, CHUNK_OVERLAP);
 
-  const allRequirements: ExtractedRequirement[] = [];
+  console.log(`[extract] text=${text.length} chars, chunks=${chunks.length}, sizes=[${chunks.map((c) => c.length).join(",")}]`);
 
-  for (const chunk of chunks) {
-    const requirements = await provider.extractRequirements(chunk);
-    allRequirements.push(...requirements);
-  }
-
-  return deduplicateRequirements(allRequirements);
+  const results = await Promise.all(
+    chunks.map(async (chunk, i) => {
+      const t0 = Date.now();
+      console.log(`[extract] chunk ${i} START (${chunk.length} chars)`);
+      try {
+        const rows = await provider.extractRequirements(chunk);
+        console.log(`[extract] chunk ${i} DONE in ${Date.now() - t0}ms, rows=${rows.length}`);
+        return rows;
+      } catch (err) {
+        console.error(`[extract] chunk ${i} FAILED after ${Date.now() - t0}ms:`, err);
+        throw err;
+      }
+    })
+  );
+  return deduplicateRequirements(results.flat());
 }
 
 function chunkText(
@@ -56,32 +100,13 @@ function deduplicateRequirements(
   requirements: ExtractedRequirement[]
 ): ExtractedRequirement[] {
   const unique: ExtractedRequirement[] = [];
-
-  for (const req of requirements) {
-    const isDuplicate = unique.some(
-      (existing) =>
-        existing.category === req.category &&
-        titleSimilarity(existing.title, req.title) > 0.8
+  for (const r of requirements) {
+    const match = findDuplicate(
+      dedupableFromExtracted(r),
+      unique,
+      dedupableFromExtracted
     );
-
-    if (!isDuplicate) {
-      unique.push(req);
-    }
+    if (!match) unique.push(r);
   }
-
   return unique;
-}
-
-function titleSimilarity(a: string, b: string): number {
-  const aLower = a.toLowerCase().trim();
-  const bLower = b.toLowerCase().trim();
-
-  if (aLower === bLower) return 1;
-
-  const aWords = new Set(aLower.split(/\s+/));
-  const bWords = new Set(bLower.split(/\s+/));
-  const intersection = new Set([...aWords].filter((w) => bWords.has(w)));
-  const union = new Set([...aWords, ...bWords]);
-
-  return intersection.size / union.size;
 }

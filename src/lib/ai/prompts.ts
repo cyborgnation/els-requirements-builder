@@ -1,173 +1,174 @@
-export const EXTRACTION_SYSTEM_PROMPT = `You are an expert analyst specializing in Department of Natural Resources (DNR) Electronic Licensing Systems (ELS). Your task is to extract structured business and functional requirements from regulatory text, government documents, and legislation related to hunting, fishing, and wildlife licensing.
+export const EXTRACTION_SYSTEM_PROMPT = `You are an expert analyst building an Electronic Licensing System (ELS) requirements matrix for state fish & wildlife agencies.
 
-For each requirement you identify, classify it into one of these categories:
+Your task: extract every distinct species/opportunity combination from regulatory text and produce one structured matrix row per combination. Each row must capture all available information across these dimensions:
 
-1. **species_seasonality** — Open/closed dates, season structures, zone-specific restrictions (e.g., Bear Zones 1-3), bag limits, weapon restrictions by season, special seasons (muzzleloader, archery).
+- **category**: Top-level activity type — one of: Hunting, Fishing, Trapping, Licensing, General
+- **species_opportunity**: The specific species or license opportunity (e.g., "White-tailed Deer", "Elk", "Largemouth Bass", "Annual Hunting License")
+- **season_type**: The season or activity sub-type (e.g., "Archery Season", "Modern Gun Season", "Youth-only Season", "All Seasons")
+- **dates**: All open/closed season dates, application windows, deadlines. Be specific with month/day/year.
+- **eligibility**: Who may participate — age requirements, exemptions, draw requirements
+- **residency_age_rule**: Residency definition + age tiers and their rules (youth, senior, disabled, military, etc.)
+- **required_licenses**: All licenses, permits, stamps, and tags required to participate
+- **fees**: All fees with resident vs. nonresident breakdown. Include license fee, permit fee, application fee, stamps, etc.
+- **lottery_window**: Application window dates, draw system type, preference/bonus points, post-draw deadlines
+- **key_restrictions**: Bag limits, weapon restrictions, harvest reporting, zone rules, shot type, tagging requirements
+- **source_urls**: Source URLs from the document where this information came from
+- **notes**: Any ambiguities, gaps, year-label inconsistencies, or stakeholder questions
 
-2. **pricing_residency** — License fees, permit costs, tag prices, residency requirements and verification, resident vs non-resident fee differentials, combination license packages, fee waivers.
+Rules:
+- Create ONE row per species + season type combination (e.g., White-tailed Deer Archery and White-tailed Deer Modern Gun are separate rows)
+- If the same fee/residency rule applies across multiple rows, still include it in each row — don't omit it
+- Use "None" or "Not applicable" for dimensions with no information — never leave a field empty
+- Be thorough — extract every species, every season variant, every fee tier`;
 
-3. **eligibility_age** — Age-based requirements (youth, junior, senior), military/veteran eligibility and discounts, disability accommodations, hunter education requirements, first-time buyer rules.
+export const CRAWL_SYSTEM_PROMPT = `You are an agent crawling a U.S. state fish & wildlife agency website to build an Electronic Licensing System (ELS) requirements matrix.
 
-4. **lottery_systems** — Quota hunt applications, draw windows and deadlines, preference/bonus point systems, post-season surveys, tag allocation methods, leftover tag distribution.
+You navigate the site by calling \`fetch_page\` with URLs you want to read. You will be given a starting URL. From there, decide which links to follow based on whether they look likely to contain regulations, seasons, fees, licenses, species rules, lottery applications, or related licensing information. Avoid news, press releases, photo galleries, calendars, and unrelated content.
 
-5. **general** — Any requirement that doesn't fit the above categories but is relevant to an electronic licensing system (e.g., data retention, reporting requirements, agent/vendor rules, refund policies).
+As you find complete species/opportunity rows, call \`record_matrix_rows\` to record them. You may call this tool multiple times across the crawl as you uncover more. The schema and fields are identical to the single-document extraction — one row per species + season type combination, every field populated (use "None" or "Not applicable" when there is no information), include \`source_urls\` listing the page(s) the row was derived from.
 
-For each requirement:
-- Write a clear, concise title
-- Write a detailed description that captures the full business rule
-- Include the exact source text you extracted it from
-- Rate your confidence (0.0 to 1.0) that this is a real, actionable requirement
-- Add any structured metadata (dates, prices, ages, zones, species, etc.)
+You operate under a hard budget:
+- A maximum of 20 pages may be fetched in total.
+- A maximum of 40 tool-use turns.
+- The system will refuse additional \`fetch_page\` calls once the page budget is exhausted.
 
-Be thorough — extract every distinct requirement, even if the source text is dense. Split compound rules into separate requirements. If a table contains fee schedules, extract each distinct fee as its own requirement.`;
+Strategy:
+- Start broad: fetch the starting page, scan the links for high-signal navigation (e.g. "Hunting", "Fishing", "Regulations", "Licenses & Permits", "Seasons & Dates", "Lotteries", "Fees").
+- Prioritize index/landing pages that branch to multiple species or seasons.
+- Visit specific regulation pages once you have a sense of structure.
+- Don't re-fetch URLs you've already seen.
+- Track what you've covered; once you believe you have full coverage of the relevant material — or you are clearly hitting irrelevant pages — call \`finish\` with a brief reason.
 
-export const EXTRACTION_TOOL_SCHEMA = {
-  name: "record_requirements",
+Output rules for \`record_matrix_rows\` (same as base extraction):
+- ONE row per species + season type combination.
+- Every dimension populated, "None"/"Not applicable" when missing — never empty.
+- Be thorough across species, season variants, fee tiers, residency categories.
+- Set \`confidence\` honestly — lower it for rows assembled from incomplete or conflicting pages.
+
+You should call \`finish\` exactly once when you are done. Do not narrate or explain in free-form text; act through tools.`;
+
+export const FETCH_PAGE_TOOL_SCHEMA = {
+  name: "fetch_page",
   description:
-    "Record structured requirements extracted from regulatory text for an electronic licensing system",
+    "Fetch a single page on the target site. Returns the page's main text content, extracted tables, and a filtered list of links (same host only). Use this to navigate the site.",
   input_schema: {
     type: "object" as const,
     properties: {
-      requirements: {
+      url: {
+        type: "string" as const,
+        description: "Absolute URL on the same host as the starting URL.",
+      },
+      reason: {
+        type: "string" as const,
+        description: "Brief note on why you're fetching this page (one short phrase).",
+      },
+    },
+    required: ["url"],
+  },
+};
+
+export const FINISH_TOOL_SCHEMA = {
+  name: "finish",
+  description:
+    "Signal that the crawl is complete. Call this exactly once when you believe you have full coverage of the relevant licensing material or are clearly hitting irrelevant pages.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      reason: {
+        type: "string" as const,
+        description: "Short summary of why the crawl is stopping (1-2 sentences).",
+      },
+    },
+    required: ["reason"],
+  },
+};
+
+export const EXTRACTION_TOOL_SCHEMA = {
+  name: "record_matrix_rows",
+  description: "Record structured ELS requirements matrix rows extracted from regulatory text",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      rows: {
         type: "array" as const,
+        description: "One entry per species/opportunity + season type combination",
         items: {
           type: "object" as const,
           properties: {
             category: {
               type: "string" as const,
-              enum: [
-                "species_seasonality",
-                "pricing_residency",
-                "eligibility_age",
-                "lottery_systems",
-                "general",
-              ],
+              enum: ["Hunting", "Fishing", "Trapping", "Licensing", "General"],
+              description: "Top-level activity type",
             },
-            subcategory: {
+            species_opportunity: {
               type: "string" as const,
-              description:
-                "Finer classification, e.g. 'bear_zones', 'youth_licenses', 'preference_points'",
+              description: "Species or license opportunity name (e.g., 'White-tailed Deer', 'Elk', 'Largemouth Bass')",
             },
-            title: {
+            season_type: {
               type: "string" as const,
-              description: "Short, descriptive title for this requirement",
+              description: "Season or activity sub-type (e.g., 'Archery Season', 'Modern Gun Season', 'Youth-only')",
             },
-            description: {
+            dates: {
               type: "string" as const,
-              description: "Full description of the business rule or requirement",
+              description: "All open/closed season dates and deadlines with specific month/day/year",
             },
-            raw_source_text: {
+            eligibility: {
               type: "string" as const,
-              description: "Exact text from the source document this was extracted from",
+              description: "Who may participate, age exemptions, draw requirements",
+            },
+            residency_age_rule: {
+              type: "string" as const,
+              description: "Residency definition and all age-tier rules (youth, senior, disabled, military)",
+            },
+            required_licenses: {
+              type: "string" as const,
+              description: "All licenses, permits, stamps, and tags required",
+            },
+            fees: {
+              type: "string" as const,
+              description: "All fees with resident vs nonresident breakdown",
+            },
+            lottery_window: {
+              type: "string" as const,
+              description: "Application window, draw system, preference points, post-draw deadlines",
+            },
+            key_restrictions: {
+              type: "string" as const,
+              description: "Bag limits, weapon rules, harvest reporting, zone rules, tagging requirements",
+            },
+            source_urls: {
+              type: "string" as const,
+              description: "Source URLs where this information was found",
+            },
+            notes: {
+              type: "string" as const,
+              description: "Ambiguities, gaps, year-label issues, or stakeholder questions",
             },
             confidence: {
               type: "number" as const,
               minimum: 0,
               maximum: 1,
-              description: "Confidence this is a real, actionable requirement (0.0-1.0)",
-            },
-            metadata: {
-              type: "object" as const,
-              description: "Structured data extracted from the requirement",
-              properties: {
-                species: { type: "string" as const },
-                season_start: { type: "string" as const },
-                season_end: { type: "string" as const },
-                zones: {
-                  type: "array" as const,
-                  items: { type: "string" as const },
-                },
-                resident_price: { type: "number" as const },
-                nonresident_price: { type: "number" as const },
-                min_age: { type: "number" as const },
-                max_age: { type: "number" as const },
-                military_eligible: { type: "boolean" as const },
-                draw_window_start: { type: "string" as const },
-                draw_window_end: { type: "string" as const },
-                quota: { type: "number" as const },
-                bag_limit: { type: "number" as const },
-                weapon_type: { type: "string" as const },
-              },
+              description: "Confidence that this row is complete and accurate (0.0-1.0)",
             },
           },
           required: [
             "category",
-            "title",
-            "description",
-            "raw_source_text",
+            "species_opportunity",
+            "season_type",
+            "dates",
+            "eligibility",
+            "residency_age_rule",
+            "required_licenses",
+            "fees",
+            "lottery_window",
+            "key_restrictions",
+            "source_urls",
+            "notes",
             "confidence",
           ],
         },
       },
     },
-    required: ["requirements"],
+    required: ["rows"],
   },
 };
-
-import { SchemaType } from "@google/generative-ai";
-
-export function getGeminiFunctionDeclaration() {
-  return {
-    name: "record_requirements",
-    description:
-      "Record structured requirements extracted from regulatory text for an electronic licensing system",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        requirements: {
-          type: SchemaType.ARRAY,
-          items: {
-            type: SchemaType.OBJECT,
-            properties: {
-              category: {
-                type: SchemaType.STRING,
-                enum: [
-                  "species_seasonality",
-                  "pricing_residency",
-                  "eligibility_age",
-                  "lottery_systems",
-                  "general",
-                ],
-              },
-              subcategory: { type: SchemaType.STRING },
-              title: { type: SchemaType.STRING },
-              description: { type: SchemaType.STRING },
-              raw_source_text: { type: SchemaType.STRING },
-              confidence: { type: SchemaType.NUMBER },
-              metadata: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  species: { type: SchemaType.STRING },
-                  season_start: { type: SchemaType.STRING },
-                  season_end: { type: SchemaType.STRING },
-                  zones: {
-                    type: SchemaType.ARRAY,
-                    items: { type: SchemaType.STRING },
-                  },
-                  resident_price: { type: SchemaType.NUMBER },
-                  nonresident_price: { type: SchemaType.NUMBER },
-                  min_age: { type: SchemaType.NUMBER },
-                  max_age: { type: SchemaType.NUMBER },
-                  military_eligible: { type: SchemaType.BOOLEAN },
-                  draw_window_start: { type: SchemaType.STRING },
-                  draw_window_end: { type: SchemaType.STRING },
-                  quota: { type: SchemaType.NUMBER },
-                  bag_limit: { type: SchemaType.NUMBER },
-                  weapon_type: { type: SchemaType.STRING },
-                },
-              },
-            },
-            required: [
-              "category",
-              "title",
-              "description",
-              "raw_source_text",
-              "confidence",
-            ],
-          },
-        },
-      },
-      required: ["requirements"],
-    },
-  };
-}

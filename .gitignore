@@ -1,4 +1,34 @@
-node_modules/
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
 __pycache__/
-.env
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+
+# misc
 .DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (do not commit secrets; commit only .env.example)
+.env
+.env.*
+!.env.example
+
+# typescript
+*.tsbuildinfo
+
+# vercel
+.vercel

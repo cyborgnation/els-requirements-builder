@@ -1,9 +1,9 @@
 export type RequirementCategory =
-  | "species_seasonality"
-  | "pricing_residency"
-  | "eligibility_age"
-  | "lottery_systems"
-  | "general";
+  | "Hunting"
+  | "Fishing"
+  | "Trapping"
+  | "Licensing"
+  | "General";
 
 export type RequirementStatus = "pending" | "approved" | "rejected" | "modified";
 
@@ -21,11 +21,11 @@ export const REQUIREMENT_CATEGORIES: {
   value: RequirementCategory;
   label: string;
 }[] = [
-  { value: "species_seasonality", label: "Species & Seasonality" },
-  { value: "pricing_residency", label: "Pricing & Residency" },
-  { value: "eligibility_age", label: "Eligibility & Age" },
-  { value: "lottery_systems", label: "Lottery Systems" },
-  { value: "general", label: "General" },
+  { value: "Hunting", label: "Hunting" },
+  { value: "Fishing", label: "Fishing" },
+  { value: "Trapping", label: "Trapping" },
+  { value: "Licensing", label: "Licensing" },
+  { value: "General", label: "General" },
 ];
 
 export const US_STATES = [
@@ -81,12 +81,31 @@ export const US_STATES = [
   { value: "WY", label: "Wyoming" },
 ] as const;
 
+export interface MatrixMetadata {
+  season_type?: string;
+  dates?: string;
+  eligibility?: string;
+  residency_age_rule?: string;
+  required_licenses?: string;
+  fees?: string;
+  lottery_window?: string;
+  key_restrictions?: string;
+  source_urls?: string;
+  notes?: string;
+}
+
 export interface ExtractedRequirement {
   category: RequirementCategory;
-  subcategory?: string;
-  title: string;
-  description: string;
-  rawSourceText: string;
+  species_opportunity: string;
+  season_type: string;
+  dates: string;
+  eligibility: string;
+  residency_age_rule: string;
+  required_licenses: string;
+  fees: string;
+  lottery_window: string;
+  key_restrictions: string;
+  source_urls: string;
+  notes: string;
   confidence: number;
-  metadata?: Record<string, unknown>;
 }

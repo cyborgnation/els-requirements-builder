@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+
+export const maxDuration = 300;
 import { db } from "@/lib/db";
 import { documents, requirements, jobs } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { extractRequirementsFromText } from "@/lib/ai/extract-requirements";
+import { extractRequirementsFromText, buildRequirementInserts } from "@/lib/ai/extract-requirements";
+import {
+  buildInitialMetadata,
+  dedupableFromExtracted,
+  dedupableFromRow,
+  findDuplicate,
+  mergeMetadata,
+} from "@/lib/requirements/dedupe";
+import type { Requirement } from "@/lib/db/schema";
 
 export async function POST(request: NextRequest) {
   const { documentId, customerId, provider = "claude" } = await request.json();
@@ -49,21 +59,75 @@ export async function POST(request: NextRequest) {
 
     const extracted = await extractRequirementsFromText(doc.rawText, provider);
 
+    let insertedCount = 0;
+    let mergedCount = 0;
+
     if (extracted.length > 0) {
-      await db.insert(requirements).values(
-        extracted.map((r) => ({
-          customerId,
-          documentId,
-          category: r.category,
-          subcategory: r.subcategory ?? null,
-          title: r.title,
-          description: r.description,
-          rawSourceText: r.rawSourceText,
-          confidence: r.confidence,
-          status: r.confidence < 0.6 ? "needs_review" : "pending",
-          metadata: r.metadata ?? null,
-        }))
-      );
+      const pool: Requirement[] = await db
+        .select()
+        .from(requirements)
+        .where(eq(requirements.customerId, customerId));
+
+      const inserts = buildRequirementInserts(extracted, customerId, documentId);
+
+      for (let i = 0; i < extracted.length; i++) {
+        const r = extracted[i];
+        const insert = inserts[i];
+        const match = findDuplicate(
+          dedupableFromExtracted(r),
+          pool,
+          dedupableFromRow
+        );
+
+        if (match) {
+          const incomingBetter = (r.confidence ?? 0) > (match.confidence ?? 0);
+          const newConfidence = Math.max(
+            r.confidence ?? 0,
+            match.confidence ?? 0
+          );
+          const mergedMeta = mergeMetadata(
+            match.metadata,
+            match.documentId,
+            insert.metadata,
+            documentId,
+            {
+              species_opportunity: r.species_opportunity,
+              season_type: r.season_type,
+            }
+          );
+
+          const [updated] = await db
+            .update(requirements)
+            .set({
+              title: incomingBetter ? insert.title : match.title,
+              description: incomingBetter
+                ? insert.description
+                : match.description,
+              rawSourceText: incomingBetter
+                ? insert.rawSourceText
+                : match.rawSourceText,
+              confidence: newConfidence,
+              metadata: mergedMeta,
+              updatedAt: new Date(),
+            })
+            .where(eq(requirements.id, match.id))
+            .returning();
+
+          const idx = pool.findIndex((p) => p.id === match.id);
+          if (idx >= 0) pool[idx] = updated;
+          mergedCount++;
+        } else {
+          const [inserted] = await db
+            .insert(requirements)
+            .values({
+              ...insert,
+              metadata: buildInitialMetadata(insert.metadata, documentId),
+            })
+            .returning();
+          pool.push(inserted);
+          insertedCount++;
+        }
+      }
     }
 
     await db
@@ -76,13 +140,19 @@ export async function POST(request: NextRequest) {
       .set({
         status: "completed",
         completedAt: new Date(),
-        result: { requirementsCount: extracted.length },
+        result: {
+          requirementsCount: extracted.length,
+          insertedCount,
+          mergedCount,
+        },
       })
       .where(eq(jobs.id, job.id));
 
     return NextResponse.json({
       job,
       requirementsCount: extracted.length,
+      insertedCount,
+      mergedCount,
     });
   } catch (err) {
     const message =

@@ -3,23 +3,44 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { LayoutDashboard, Building2 } from "lucide-react";
 
 const navItems = [
-  { href: "/", label: "Dashboard", icon: "📊" },
-  { href: "/customers", label: "Customers", icon: "🏢" },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/customers", label: "Customers", icon: Building2 },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-screen w-64 flex-col border-r bg-white">
-      <div className="border-b px-6 py-4">
-        <h1 className="text-lg font-bold text-gray-900">ELS Builder</h1>
-        <p className="text-xs text-gray-500">Requirements Management</p>
+    <aside className="flex h-screen w-64 flex-col bg-[#003DA5]">
+      {/* Logo */}
+      <div className="flex items-center gap-3 border-b border-white/15 px-6 py-5">
+        <div className="flex h-8 w-8 items-center justify-center rounded bg-white/20">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            className="h-5 w-5 text-white"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7l-9-5z"
+              fill="currentColor"
+              fillOpacity="0.9"
+            />
+          </svg>
+        </div>
+        <div>
+          <p className="text-sm font-semibold leading-tight text-white">ELS Builder</p>
+          <p className="text-[11px] leading-tight text-white/60">Requirements Management</p>
+        </div>
       </div>
-      <nav className="flex-1 space-y-1 px-3 py-4">
+
+      {/* Navigation */}
+      <nav className="flex-1 space-y-0.5 px-3 py-4">
         {navItems.map((item) => {
+          const Icon = item.icon;
           const isActive =
             item.href === "/"
               ? pathname === "/"
@@ -29,18 +50,23 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors duration-150 cursor-pointer",
                 isActive
-                  ? "bg-gray-100 text-gray-900"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  ? "bg-white/15 text-white"
+                  : "text-white/70 hover:bg-white/10 hover:text-white"
               )}
             >
-              <span>{item.icon}</span>
+              <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
               {item.label}
             </Link>
           );
         })}
       </nav>
+
+      {/* Footer */}
+      <div className="border-t border-white/15 px-6 py-4">
+        <p className="text-[11px] text-white/40">PayIt Gov Platform</p>
+      </div>
     </aside>
   );
 }
