@@ -51,6 +51,26 @@ npm run dev:all                 # Next.js dev server + BullMQ worker
 
 Open <http://localhost:3000> and log in with the `APP_PASSWORD` you set.
 
+### Database & services — common blocker
+
+The app's only hard runtime dependency is **PostgreSQL 16**. `docker compose up
+-d` provides it (plus Redis) preconfigured to match `.env.example` — there is no
+separate database to install. If the environment can't run Docker, set
+`DATABASE_URL` in `.env.local` to any reachable Postgres 16 instance (local
+Postgres.app/Homebrew, or hosted Neon/Supabase), then `npm run db:push`.
+
+**Redis is optional.** It backs BullMQ, which is only used by the website-scraping
+route. Document upload, AI extraction (runs inline, not queued), the review
+table, and Google Sheets export all work without Redis. When Redis is absent,
+run `npm run dev` (web only) instead of `npm run dev:all` — the worker process
+needs Redis and will error without it.
+
+Verify Postgres connectivity before launching:
+
+```bash
+node --env-file=.env.local -e "require('postgres')(process.env.DATABASE_URL)\`select 1\`.then(()=>{console.log('db ok');process.exit(0)}).catch(e=>{console.error('db FAIL:',e.message||e.code||e);process.exit(1)})"
+```
+
 ## Project layout
 
 ```
