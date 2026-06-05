@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Building2, PanelLeftClose, PanelLeft } from "lucide-react";
+import { LayoutDashboard, Building2, Settings, PanelLeftClose, PanelLeft } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/customers", label: "Customers", icon: Building2 },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 const STORAGE_KEY = "sidebar-collapsed";

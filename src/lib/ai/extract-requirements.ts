@@ -41,19 +41,21 @@ const CHUNK_OVERLAP = 1000;
 
 export async function extractRequirementsFromText(
   text: string,
-  providerName: string = "claude"
+  providerName: string = "gemini",
+  model?: string
 ): Promise<ExtractedRequirement[]> {
   const provider = getProvider(providerName);
+  const resolvedModel = model ?? (providerName === "gemini" ? "gemini-2.5-flash" : "claude-sonnet-4-6");
   const chunks = chunkText(text, CHUNK_SIZE, CHUNK_OVERLAP);
 
-  console.log(`[extract] text=${text.length} chars, chunks=${chunks.length}, sizes=[${chunks.map((c) => c.length).join(",")}]`);
+  console.log(`[extract] text=${text.length} chars, chunks=${chunks.length}, provider=${providerName}, model=${resolvedModel}`);
 
   const results = await Promise.all(
     chunks.map(async (chunk, i) => {
       const t0 = Date.now();
       console.log(`[extract] chunk ${i} START (${chunk.length} chars)`);
       try {
-        const rows = await provider.extractRequirements(chunk);
+        const rows = await provider.extractRequirements(chunk, resolvedModel);
         console.log(`[extract] chunk ${i} DONE in ${Date.now() - t0}ms, rows=${rows.length}`);
         return rows;
       } catch (err) {
