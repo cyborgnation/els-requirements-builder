@@ -14,9 +14,11 @@ import {
   mergeMetadata,
 } from "@/lib/requirements/dedupe";
 import type { Requirement } from "@/lib/db/schema";
+import { getAISettings } from "@/lib/settings";
 
 export async function POST(request: NextRequest) {
-  const { documentId, customerId, provider = "claude" } = await request.json();
+  const aiSettings = await getAISettings();
+  const { documentId, customerId, provider = aiSettings.provider, model = aiSettings.model } = await request.json();
 
   if (!documentId || !customerId) {
     return NextResponse.json(
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest) {
       .set({ status: "processing", updatedAt: new Date() })
       .where(eq(documents.id, documentId));
 
-    const extracted = await extractRequirementsFromText(doc.rawText, provider);
+    const extracted = await extractRequirementsFromText(doc.rawText, provider, model);
 
     let insertedCount = 0;
     let mergedCount = 0;

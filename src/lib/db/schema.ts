@@ -98,3 +98,9 @@ export type ScrapeTarget = typeof scrapeTargets.$inferSelect;
 export type NewScrapeTarget = typeof scrapeTargets.$inferInsert;
 export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
+
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
