@@ -1,18 +1,12 @@
-import Anthropic from "@anthropic-ai/sdk";
-import {
-  CRAWL_SYSTEM_PROMPT,
-  EXTRACTION_TOOL_SCHEMA,
-  FETCH_PAGE_TOOL_SCHEMA,
-  FINISH_TOOL_SCHEMA,
-} from "./prompts";
+import { createCrawlChat } from "./crawl-chat";
+import { extractRequirementsFromText } from "./extract-requirements";
+import { EXTRACTION_TOOL_SCHEMA, FETCH_PAGE_TOOL_SCHEMA, FINISH_TOOL_SCHEMA } from "./prompts";
 import type { FetchedPage } from "@/lib/scraper/fetch-page";
 import { normalizeHost } from "@/lib/scraper/fetch-page";
 import type { ExtractedRequirement } from "@/types";
 
-const MODEL = "claude-sonnet-4-6";
 const DEFAULT_MAX_PAGES = 20;
 const DEFAULT_MAX_TURNS = 40;
-const MAX_TOKENS_PER_TURN = 8000;
 
 export interface CrawlProgress {
   pagesFetched: number;
@@ -39,6 +33,8 @@ export interface CrawlAgentOptions {
   onProgress?: (p: CrawlProgress) => void;
   maxPages?: number;
   maxTurns?: number;
+  provider?: string;
+  model?: string;
 }
 
 type RecordRowsInput = {
@@ -63,7 +59,10 @@ export async function crawlAgent(opts: CrawlAgentOptions): Promise<CrawlResult> 
   const maxPages = opts.maxPages ?? DEFAULT_MAX_PAGES;
   const maxTurns = opts.maxTurns ?? DEFAULT_MAX_TURNS;
   const targetHost = normalizeHost(opts.startUrl);
-  const client = new Anthropic();
+  const provider = opts.provider ?? "gemini";
+  const model = opts.model ?? (provider === "gemini" ? "gemini-2.5-flash" : "claude-sonnet-4-6");
+
+  const chat = createCrawlChat(provider, model);
 
   const visited = new Set<string>();
   const pageTexts: { url: string; title: string; text: string }[] = [];
@@ -85,75 +84,25 @@ export async function crawlAgent(opts: CrawlAgentOptions): Promise<CrawlResult> 
     });
   };
 
-  const messages: Anthropic.MessageParam[] = [
-    {
-      role: "user",
-      content: `Start crawling at: ${opts.startUrl}\n\nThe site host is ${targetHost}. Only links on this host will be allowed. Page budget: ${maxPages}. Turn budget: ${maxTurns}. Begin by fetching the starting URL.`,
-    },
-  ];
-
   emit();
 
+  const initialMessage = `Start crawling at: ${opts.startUrl}\n\nThe site host is ${targetHost}. Only links on this host will be allowed. Page budget: ${maxPages}. Turn budget: ${maxTurns}. Begin by fetching the starting URL.`;
+  let turnResult = await chat.sendInitial(initialMessage);
+  turns++;
+  console.log(`[crawl] turn=${turns} toolCalls=${turnResult.toolCalls.length}`);
+
   while (turns < maxTurns) {
-    turns++;
-    const stream = client.messages.stream({
-      model: MODEL,
-      max_tokens: MAX_TOKENS_PER_TURN,
-      system: [
-        {
-          type: "text",
-          text: CRAWL_SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      tools: [
-        {
-          name: FETCH_PAGE_TOOL_SCHEMA.name,
-          description: FETCH_PAGE_TOOL_SCHEMA.description,
-          input_schema: FETCH_PAGE_TOOL_SCHEMA.input_schema,
-        },
-        {
-          name: EXTRACTION_TOOL_SCHEMA.name,
-          description: EXTRACTION_TOOL_SCHEMA.description,
-          input_schema: EXTRACTION_TOOL_SCHEMA.input_schema,
-        },
-        {
-          name: FINISH_TOOL_SCHEMA.name,
-          description: FINISH_TOOL_SCHEMA.description,
-          input_schema: FINISH_TOOL_SCHEMA.input_schema,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages,
-    });
-
-    const response = await stream.finalMessage();
-    console.log(
-      `[crawl] turn=${turns} stop=${response.stop_reason} usage=${JSON.stringify(response.usage)}`
-    );
-
-    messages.push({ role: "assistant", content: response.content });
-
-    if (response.stop_reason === "end_turn") {
-      stopReason = "model_ended_turn_without_finish";
+    if (turnResult.shouldStop && turnResult.toolCalls.length === 0) {
+      stopReason = "model_ended_turn";
       break;
     }
 
-    const toolUses = response.content.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
-    );
-    if (toolUses.length === 0) {
-      stopReason = "no_tool_use";
-      break;
-    }
-
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    const toolResults: { id: string; content: string; isError?: boolean }[] = [];
     let finishCalled = false;
 
-    for (const block of toolUses) {
-      if (block.name === FETCH_PAGE_TOOL_SCHEMA.name) {
-        const input = block.input as { url?: string };
-        const url = (input.url || "").trim();
+    for (const call of turnResult.toolCalls) {
+      if (call.name === FETCH_PAGE_TOOL_SCHEMA.name) {
+        const url = (String(call.input.url || "")).trim();
         const result = await runFetchPage({
           url,
           targetHost,
@@ -165,62 +114,46 @@ export async function crawlAgent(opts: CrawlAgentOptions): Promise<CrawlResult> 
         if (result.ok) {
           pagesFetched++;
           visited.add(result.normalizedUrl);
-          pageTexts.push({
-            url: result.normalizedUrl,
-            title: result.title,
-            text: result.text,
-          });
+          pageTexts.push({ url: result.normalizedUrl, title: result.title, text: result.text });
           currentUrl = result.normalizedUrl;
         }
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: result.content,
-          is_error: !result.ok,
-        });
+        toolResults.push({ id: call.id, content: result.content, isError: !result.ok });
         emit();
-      } else if (block.name === EXTRACTION_TOOL_SCHEMA.name) {
-        const input = block.input as RecordRowsInput;
+      } else if (call.name === EXTRACTION_TOOL_SCHEMA.name) {
+        const input = call.input as RecordRowsInput;
         const added = ingestRows(input, rows);
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: `Recorded ${added} new row(s). Total rows so far: ${rows.length}.`,
-        });
+        toolResults.push({ id: call.id, content: `Recorded ${added} new row(s). Total rows so far: ${rows.length}.` });
         emit();
-      } else if (block.name === FINISH_TOOL_SCHEMA.name) {
-        const input = block.input as { reason?: string };
-        stopReason = input.reason || "finish_called";
+      } else if (call.name === FINISH_TOOL_SCHEMA.name) {
+        const reason = String(call.input.reason || "finish_called");
+        stopReason = reason;
         finishCalled = true;
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: "Crawl ended.",
-        });
+        toolResults.push({ id: call.id, content: "Crawl ended." });
       } else {
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: `Unknown tool: ${block.name}`,
-          is_error: true,
-        });
+        toolResults.push({ id: call.id, content: `Unknown tool: ${call.name}`, isError: true });
       }
     }
 
-    messages.push({ role: "user", content: toolResults });
-
     if (finishCalled) break;
 
-    if (pagesFetched >= maxPages) {
-      messages.push({
-        role: "user",
-        content: `Page budget exhausted (${pagesFetched}/${maxPages}). Record any remaining rows you can and call \`finish\` to end the crawl.`,
-      });
+    if (pagesFetched >= maxPages && toolResults.length > 0) {
+      toolResults[toolResults.length - 1].content +=
+        `\n\n[SYSTEM] Page budget exhausted (${pagesFetched}/${maxPages}). Call \`finish\` now.`;
     }
+
+    turns++;
+    turnResult = await chat.sendToolResults(toolResults);
+    console.log(`[crawl] turn=${turns} toolCalls=${turnResult.toolCalls.length}`);
   }
 
-  if (turns >= maxTurns && stopReason === "max_turns_reached") {
-    stopReason = "max_turns_reached";
+  if (!chat.supportsInlineExtraction && pageTexts.length > 0 && rows.length === 0) {
+    console.log(`[crawl] post-crawl extraction on ${pageTexts.length} pages`);
+    const combinedText = pageTexts
+      .map((p) => `=== ${p.url} ===\n${p.title}\n\n${p.text}`)
+      .join("\n\n---\n\n");
+    const extracted = await extractRequirementsFromText(combinedText, provider, model);
+    rows.push(...extracted);
+    console.log(`[crawl] post-crawl extraction found ${extracted.length} rows`);
   }
 
   const deduped = dedupeRows(rows);
@@ -245,16 +178,13 @@ async function runFetchPage(args: {
   fetchPage: (url: string) => Promise<FetchedPage>;
 }): Promise<
   | { ok: true; normalizedUrl: string; title: string; text: string; content: string }
-  | { ok: false; content: string; normalizedUrl?: string; title?: string; text?: string }
+  | { ok: false; content: string }
 > {
   if (!args.url) {
     return { ok: false, content: "Missing `url` parameter." };
   }
   if (args.pagesFetched >= args.maxPages) {
-    return {
-      ok: false,
-      content: `Page budget exhausted (${args.pagesFetched}/${args.maxPages}). Call \`finish\` now.`,
-    };
+    return { ok: false, content: `Page budget exhausted (${args.pagesFetched}/${args.maxPages}). Call \`finish\` now.` };
   }
 
   let normalized: string;
@@ -267,38 +197,23 @@ async function runFetchPage(args: {
   }
 
   if (normalizeHost(normalized) !== args.targetHost) {
-    return {
-      ok: false,
-      content: `URL is off-host (allowed host: ${args.targetHost}). Only same-host URLs may be fetched.`,
-    };
+    return { ok: false, content: `URL is off-host (allowed host: ${args.targetHost}). Only same-host URLs may be fetched.` };
   }
 
   if (args.visited.has(normalized)) {
-    return {
-      ok: false,
-      content: `Already visited: ${normalized}. Pick a different URL.`,
-    };
+    return { ok: false, content: `Already visited: ${normalized}. Pick a different URL.` };
   }
 
   try {
     const page = await args.fetchPage(normalized);
     const linkSummary = page.links.length
-      ? page.links
-          .map((l) => `- ${l.href}${l.anchor ? `  (“${l.anchor}”)` : ""}`)
-          .join("\n")
+      ? page.links.map((l) => `- ${l.href}${l.anchor ? `  ("${l.anchor}")` : ""}`).join("\n")
       : "(no same-host links found)";
-    const content = `URL: ${page.url}
-Title: ${page.title}
-
---- PAGE TEXT ---
-${page.text}
-
---- LINKS (same host) ---
-${linkSummary}`;
+    const content = `URL: ${page.url}\nTitle: ${page.title}\n\n--- PAGE TEXT ---\n${page.text}\n\n--- LINKS (same host) ---\n${linkSummary}`;
     return { ok: true, normalizedUrl: normalized, title: page.title, text: page.text, content };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, content: `Fetch failed: ${msg}`, normalizedUrl: normalized };
+    return { ok: false, content: `Fetch failed: ${msg}` };
   }
 }
 

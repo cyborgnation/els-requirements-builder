@@ -6,6 +6,7 @@ import { jobs, documents, requirements, scrapeTargets } from "@/lib/db/schema";
 import { fetchPage } from "@/lib/scraper/fetch-page";
 import { crawlAgent, type CrawlProgress } from "@/lib/ai/crawl-agent";
 import { buildRequirementInserts } from "@/lib/ai/extract-requirements";
+import { getAISettings } from "@/lib/settings";
 
 const connection = {
   host: new URL(process.env.REDIS_URL || "redis://localhost:6379").hostname,
@@ -68,6 +69,7 @@ const scrapeWorker = new Worker<ScrapeJobData>(
           .where(eq(jobs.id, jobId));
       };
 
+      const aiSettings = await getAISettings();
       const result = await crawlAgent({
         startUrl: target.url,
         fetchPage: (url) => fetchPage(context, url, { sameHostAs: target.url }),
@@ -76,6 +78,8 @@ const scrapeWorker = new Worker<ScrapeJobData>(
             console.error(`[scrape] progress write failed:`, err)
           );
         },
+        provider: aiSettings.provider,
+        model: aiSettings.model,
       });
 
       const rawText = result.pageTexts
