@@ -71,6 +71,16 @@ Verify Postgres connectivity before launching:
 node --env-file=.env.local -e "require('postgres')(process.env.DATABASE_URL)\`select 1\`.then(()=>{console.log('db ok');process.exit(0)}).catch(e=>{console.error('db FAIL:',e.message||e.code||e);process.exit(1)})"
 ```
 
+### Scraper / Chromium "permission" errors
+
+Playwright's Chromium uses a setuid sandbox that fails to start in many
+container, CI, and AI-agent environments (notably when the process runs as
+root), surfacing as a permission error on launch. The worker auto-detects this
+(root or `CI` set) and launches with `--no-sandbox --disable-setuid-sandbox
+--disable-dev-shm-usage`. To force the behavior either way, set
+`CHROMIUM_NO_SANDBOX=1` (always off) or `=0` (always on) in `.env.local`. Also
+make sure the browser binaries are installed: `npx playwright install chromium`.
+
 ## Project layout
 
 ```

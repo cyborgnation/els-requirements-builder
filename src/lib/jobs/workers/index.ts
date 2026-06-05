@@ -18,6 +18,28 @@ const connection = {
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+// Chromium's setuid sandbox can't initialize in many container / CI / AI-agent
+// environments (especially when running as root), surfacing as a "permission"
+// error on launch. Disable it when we detect such an environment, or when
+// CHROMIUM_NO_SANDBOX is set explicitly. Leave the sandbox ON for normal
+// non-root local dev.
+function chromiumLaunchArgs(): string[] {
+  const flag = process.env.CHROMIUM_NO_SANDBOX?.toLowerCase();
+  let noSandbox: boolean;
+  if (flag === "1" || flag === "true") {
+    noSandbox = true;
+  } else if (flag === "0" || flag === "false") {
+    noSandbox = false;
+  } else {
+    const isRoot =
+      typeof process.getuid === "function" && process.getuid() === 0;
+    noSandbox = isRoot || !!process.env.CI;
+  }
+  return noSandbox
+    ? ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    : [];
+}
+
 interface ScrapeJobData {
   jobId: string;
   targetId: string;
@@ -44,7 +66,10 @@ const scrapeWorker = new Worker<ScrapeJobData>(
       throw new Error(`Scrape target not found: ${targetId}`);
     }
 
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({
+      headless: true,
+      args: chromiumLaunchArgs(),
+    });
     const context = await browser.newContext({ userAgent: USER_AGENT });
 
     try {
