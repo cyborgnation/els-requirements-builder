@@ -1,5 +1,5 @@
 {
-  "name": "gallant-torvalds-a42ab6",
+  "name": "els-requirements-builder",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "playwright install chromium || true",
+    "setup:browsers": "playwright install chromium",
     "worker": "tsx watch --env-file=.env.local src/lib/jobs/workers/index.ts",
     "dev:all": "concurrently \"npm run dev\" \"npm run worker\"",
     "db:generate": "drizzle-kit generate",

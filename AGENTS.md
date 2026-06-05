@@ -81,6 +81,22 @@ root), surfacing as a permission error on launch. The worker auto-detects this
 `CHROMIUM_NO_SANDBOX=1` (always off) or `=0` (always on) in `.env.local`. Also
 make sure the browser binaries are installed: `npx playwright install chromium`.
 
+**"Executable doesn't exist … run npx playwright install" even though you just
+did.** This is a *location* mismatch, not a missing install. Some environments
+(notably AI-agent sandboxes like Codex) set `PLAYWRIGHT_BROWSERS_PATH` to a
+project-local dir such as `./.playwright-browsers`, so the worker looks there —
+but a plain `npx playwright install` downloads to the default cache
+(`~/Library/Caches/ms-playwright`). Install into the path the worker uses:
+
+```bash
+# run from the project root
+PLAYWRIGHT_BROWSERS_PATH="$PWD/.playwright-browsers" npx playwright install chromium
+```
+
+`npm install` also runs `playwright install chromium` via `postinstall`, which
+lands the browser in whatever `PLAYWRIGHT_BROWSERS_PATH` is active at install
+time — so keep that var consistent between install and run.
+
 ## Project layout
 
 ```
