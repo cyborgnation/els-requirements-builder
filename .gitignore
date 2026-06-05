@@ -16,6 +16,13 @@ next-env.d.ts
 .DS_Store
 *.pem
 
+# claude code worktrees / local agent state
+.claude/
+
+# uploaded documents (keep the dir, ignore contents)
+/storage/*
+!/storage/.gitkeep
+
 # debug
 npm-debug.log*
 yarn-debug.log*

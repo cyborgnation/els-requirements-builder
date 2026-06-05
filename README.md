@@ -1,6 +1,15 @@
-# DocScrape
+# ELS Requirements Builder
 
-Internal tool for scraping documents, extracting requirements with AI, and managing customer records.
+Internal tool that helps project managers produce Functional/Business
+Requirement Documents (FRD/BRD) for Department of Natural Resources (DNR)
+**Electronic Licensing System (ELS)** SaaS projects.
+
+Upload PDFs/text or scrape government sites → an AI model (Claude or Gemini)
+extracts structured requirements → review them in a categorized table with
+confidence scores and an approve/reject/edit workflow → export to Google Sheets.
+
+> Working with an AI agent? See [`AGENTS.md`](./AGENTS.md) for architecture and
+> conventions.
 
 ## Prerequisites
 
